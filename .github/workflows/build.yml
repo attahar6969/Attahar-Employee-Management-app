@@ -1,0 +1,104 @@
+# Manual APK build — trigger from Actions → Build APK → Run workflow.
+#
+# Secrets required for signed release builds (Settings → Secrets and variables → Actions):
+#   KEYSTORE_BASE64     — base64-encoded .p12 keystore  (base64 -w0 keystore/release-signing.p12)
+#   KEYSTORE_PASSWORD   — store password
+#   KEY_ALIAS           — key alias inside the keystore
+#   KEY_PASSWORD        — key password
+#
+# Without those secrets, selecting "release" produces an unsigned APK.
+
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: 'URL to load in the WebView on launch'
+        required: true
+        default: 'https://example.com/'
+      app_package:
+        description: 'Application ID (e.g. com.example.myapp)'
+        required: true
+        default: 'com.example.myapp'
+      app_name:
+        description: 'App display name (shown on home screen)'
+        required: true
+        default: 'My App'
+      app_icon_url:
+        description: 'App icon URL or repository-relative path (optional)'
+        required: false
+        default: ''
+      build_type:
+        description: 'Build type — release requires KEYSTORE_* secrets for signing'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install icon tools
+        run: sudo apt-get update && sudo apt-get install --yes imagemagick libxml2-utils
+
+      - name: Cache Gradle
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      - name: Write app.properties
+        env:
+          APP_URL: ${{ inputs.app_url }}
+          APP_PACKAGE: ${{ inputs.app_package }}
+          APP_NAME: ${{ inputs.app_name }}
+          APP_ICON_URL: ${{ inputs.app_icon_url }}
+        run: printf 'app.url=%s\napp.package=%s\napp.name=%s\napp.icon_url=%s\napp.icon_fallback=true\n' "$APP_URL" "$APP_PACKAGE" "$APP_NAME" "$APP_ICON_URL" > app.properties
+
+      - name: Set up release signing
+        if: inputs.build_type == 'release'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p keystore
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > keystore/release-signing.p12
+            printf 'storeFile=keystore/release-signing.p12\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+          else
+            echo "::warning::KEYSTORE_BASE64 secret not set — release APK will be unsigned"
+          fi
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          if [ "${{ inputs.build_type }}" = "release" ]; then
+            ./gradlew assembleRelease
+          else
+            ./gradlew assembleDebug
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: apk-${{ inputs.build_type }}
+          path: app/build/outputs/apk/${{ inputs.build_type }}/
+          if-no-files-found: error

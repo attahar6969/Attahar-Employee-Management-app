@@ -1,0 +1,3 @@
+<resources>
+    <!-- app_name is injected at build time from app.properties via resValue -->
+</resources>
