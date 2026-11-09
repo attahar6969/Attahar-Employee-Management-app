@@ -76,7 +76,6 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
             val cb = pendingGeoCallback ?: return@registerForActivityResult
             val origin = pendingGeoOrigin ?: return@registerForActivityResult
-            Toast.makeText(this, "Android location allowed: " + results.values.any { it }, Toast.LENGTH_LONG).show()
             cb.invoke(origin, results.values.any { it }, false)
             pendingGeoCallback = null
             pendingGeoOrigin = null
@@ -238,7 +237,6 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
-                Toast.makeText(this@MainActivity, "Page asked for location", Toast.LENGTH_LONG).show()
                 if (origin == null || callback == null) return
                 val hasLocation =
                     checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
