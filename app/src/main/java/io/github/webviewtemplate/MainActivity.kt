@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
 import android.webkit.WebSettings
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -68,6 +69,16 @@ class MainActivity : AppCompatActivity() {
     private var pendingCameraCaptureUri: Uri? = null
     private var pendingCameraCaptureFile: File? = null
     private var pendingWebPermissionRequest: PendingWebPermissionRequest? = null
+    private var pendingGeoOrigin: String? = null
+    private var pendingGeoCallback: GeolocationPermissions.Callback? = null
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val cb = pendingGeoCallback ?: return@registerForActivityResult
+            val origin = pendingGeoOrigin ?: return@registerForActivityResult
+            cb.invoke(origin, results.values.any { it }, false)
+            pendingGeoCallback = null
+            pendingGeoOrigin = null
+        }
     private val webPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             val pending = pendingWebPermissionRequest ?: return@registerForActivityResult
@@ -221,6 +232,31 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: GeolocationPermissions.Callback?
+            ) {
+                if (origin == null || callback == null) return
+                val hasLocation =
+                    checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+                        PackageManager.PERMISSION_GRANTED ||
+                    checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                        PackageManager.PERMISSION_GRANTED
+                if (hasLocation) {
+                    callback.invoke(origin, true, false)
+                } else {
+                    pendingGeoCallback?.invoke(pendingGeoOrigin ?: origin, false, false)
+                    pendingGeoOrigin = origin
+                    pendingGeoCallback = callback
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }
+            }
+
             override fun onPermissionRequestCanceled(request: PermissionRequest?) {
                 Log.d(
                     TAG,
@@ -341,6 +377,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildFileChooserIntent(fileChooserParams: WebChromeClient.FileChooserParams?): Intent {
+        if (fileChooserParams?.isCaptureEnabled == true) {
+            createCameraCaptureIntent()?.let { camera ->
+                camera.putExtra("android.intent.extras.CAMERA_FACING", 1)
+                camera.putExtra("android.intent.extra.USE_FRONT_CAMERA", true)
+                return camera
+            }
+        }
         val baseIntent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
