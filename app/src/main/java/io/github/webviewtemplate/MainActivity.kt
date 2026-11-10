@@ -148,6 +148,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         rootContainer = findViewById(R.id.root_container)
+        rootContainer.setBackgroundColor(Color.parseColor("#0B2A43"))
         webView = findViewById(R.id.webview)
         val initialLeft = rootContainer.paddingLeft
         val initialTop = rootContainer.paddingTop
@@ -168,6 +169,7 @@ class MainActivity : AppCompatActivity() {
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.settings.cacheMode = WebSettings.LOAD_DEFAULT
         webView.settings.mediaPlaybackRequiresUserGesture = false
         webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
@@ -334,6 +336,7 @@ class MainActivity : AppCompatActivity() {
                 saveBytes(name, mime, bytes)
             }
         }
+        webView.setBackgroundColor(Color.parseColor("#0B2A43"))
         webView.loadUrl(HOME_URL)
         // A recreated activity may already have a request in flight; its result is redelivered.
         if (savedInstanceState == null) {
