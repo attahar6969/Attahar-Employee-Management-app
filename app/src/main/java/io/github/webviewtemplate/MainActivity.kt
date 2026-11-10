@@ -10,6 +10,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.content.ContentValues
+import android.os.Environment
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.util.Base64
+import android.webkit.JavascriptInterface
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
@@ -313,6 +319,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        webView.addJavascriptInterface(AndroidBridge(), "AndroidBridge")
+        WebView.setWebContentsDebuggingEnabled(true)
+        webView.setDownloadListener { url, _, _, mimeType, _ ->
+            if (url.startsWith("data:")) {
+                val comma = url.indexOf(',')
+                val meta = url.substring(5, comma)
+                val payload = url.substring(comma + 1)
+                val mime = meta.substringBefore(';').ifEmpty { mimeType ?: "application/octet-stream" }
+                val name = Regex("filename=([^;]+)").find(meta)?.groupValues?.get(1)
+                    ?.let { Uri.decode(it) } ?: "download.pdf"
+                val bytes = if (meta.contains(";base64")) Base64.decode(payload, Base64.DEFAULT)
+                            else Uri.decode(payload).toByteArray()
+                saveBytes(name, mime, bytes)
+            }
+        }
         webView.loadUrl(HOME_URL)
         // A recreated activity may already have a request in flight; its result is redelivered.
         if (savedInstanceState == null) {
@@ -490,6 +511,64 @@ class MainActivity : AppCompatActivity() {
             Color.rgb(r, g, b)
         } else {
             Color.argb((alpha.coerceIn(0f, 1f) * 255).toInt(), r, g, b)
+        }
+    }
+
+    private fun saveBytes(name: String, mime: String, bytes: ByteArray) {
+        try {
+            val uri: Uri
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, name)
+                    put(MediaStore.Downloads.MIME_TYPE, mime)
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: throw IllegalStateException("insert returned null")
+                contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
+            } else {
+                val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)!!
+                val f = File(dir, name)
+                f.writeBytes(bytes)
+                uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", f)
+            }
+            runOnUiThread {
+                Toast.makeText(this, "Saved to Downloads: $name", Toast.LENGTH_LONG).show()
+                try {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime)
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: Exception) { }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "saveBytes failed", e)
+            runOnUiThread { Toast.makeText(this, "Could not save the file", Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    inner class AndroidBridge {
+        private var printView: WebView? = null
+
+            @JavascriptInterface
+        fun saveFile(name: String, mime: String, b64: String) {
+            saveBytes(name, mime, Base64.decode(b64, Base64.DEFAULT))
+        }
+
+        @JavascriptInterface
+        fun printHtml(title: String, html: String) {
+            runOnUiThread {
+                val wv = WebView(this@MainActivity)
+                printView = wv
+                wv.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        val pm = getSystemService(PRINT_SERVICE) as PrintManager
+                        pm.print(title, view.createPrintDocumentAdapter(title), PrintAttributes.Builder().build())
+                        printView = null
+                    }
+                }
+                wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+            }
         }
     }
 
