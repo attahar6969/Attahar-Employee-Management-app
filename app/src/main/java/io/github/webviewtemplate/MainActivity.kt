@@ -44,6 +44,9 @@ import java.util.Date
 import java.util.Locale
 import org.json.JSONArray
 import androidx.core.graphics.toColorInt
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import android.os.Handler
+import android.os.Looper
 
 @SuppressLint("IntentReset", "QueryPermissionsNeeded")
 class MainActivity : AppCompatActivity() {
@@ -71,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var webView: WebView
+    @Volatile private var pageIsReady = false
     private lateinit var rootContainer: FrameLayout
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCaptureUri: Uri? = null
@@ -140,7 +144,10 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splash = installSplashScreen()
+        splash.setKeepOnScreenCondition { !pageIsReady }
         super.onCreate(savedInstanceState)
+        Handler(Looper.getMainLooper()).postDelayed({ pageIsReady = true }, 10000)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -318,6 +325,14 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest
             ): Boolean {
                 return false
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: android.webkit.WebResourceError
+            ) {
+                if (request.isForMainFrame) pageIsReady = true
             }
         }
 
@@ -552,6 +567,9 @@ class MainActivity : AppCompatActivity() {
 
     inner class AndroidBridge {
         private var printView: WebView? = null
+
+        @JavascriptInterface
+        fun pageReady() { pageIsReady = true }
 
             @JavascriptInterface
         fun saveFile(name: String, mime: String, b64: String) {
