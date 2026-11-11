@@ -155,7 +155,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         rootContainer = findViewById(R.id.root_container)
-        rootContainer.setBackgroundColor(Color.BLACK)
+        rootContainer.setBackgroundColor(Color.parseColor("#0B2A43"))
         webView = findViewById(R.id.webview)
         val initialLeft = rootContainer.paddingLeft
         val initialTop = rootContainer.paddingTop
@@ -351,7 +351,7 @@ class MainActivity : AppCompatActivity() {
                 saveBytes(name, mime, bytes)
             }
         }
-        webView.setBackgroundColor(Color.BLACK)
+        webView.setBackgroundColor(Color.parseColor("#0B2A43"))
         webView.loadUrl(HOME_URL)
         // A recreated activity may already have a request in flight; its result is redelivered.
         if (savedInstanceState == null) {
@@ -514,7 +514,7 @@ class MainActivity : AppCompatActivity() {
     private fun parseCssColor(input: String): Int? {
         val value = input.trim().lowercase()
         if (value == "transparent" || value == "rgba(0, 0, 0, 0)") {
-            return Color.BLACK
+            return Color.WHITE
         }
         runCatching { value.toColorInt() }.getOrNull()?.let { return it }
 
@@ -608,7 +608,7 @@ class MainActivity : AppCompatActivity() {
                   return color;
                 }
               }
-              return "#000000";
+              return "#ffffff";
             })();
         """
     }
