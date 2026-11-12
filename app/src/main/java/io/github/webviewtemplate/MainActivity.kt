@@ -49,6 +49,8 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
+import android.graphics.Bitmap
+import android.graphics.Canvas
 
 @SuppressLint("IntentReset", "QueryPermissionsNeeded")
 class MainActivity : AppCompatActivity() {
@@ -528,18 +530,32 @@ class MainActivity : AppCompatActivity() {
         pendingCameraCaptureFile = null
     }
 
-    private fun syncBarColorsWithPage(view: WebView) {
-        view.evaluateJavascript(EDGE_COLORS_JS) { jsValue ->
-            val raw = decodeJsonString(jsValue) ?: return@evaluateJavascript
-            val parts = raw.split("|")
-            if (parts.size != 2) return@evaluateJavascript
-            val top = parseCssColor(parts[0]) ?: return@evaluateJavascript
-            val bottom = parseCssColor(parts[1]) ?: return@evaluateJavascript
+     private fun syncBarColorsWithPage(view: WebView) {
+        if (view.width <= 0 || view.height <= 0) return
+        val scale = 0.25f
+        val w = (view.width * scale).toInt().coerceAtLeast(4)
+        val h = (view.height * scale).toInt().coerceAtLeast(4)
+        val bmp = try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        } catch (e: Throwable) {
+            return
+        }
+        try {
+            val canvas = Canvas(bmp)
+            canvas.scale(scale, scale)
+            view.draw(canvas)
+            val topPx = bmp.getPixel(2, 1)
+            val bottomPx = bmp.getPixel(2, h - 2)
+            if (Color.alpha(topPx) == 0 || Color.alpha(bottomPx) == 0) return
+            val top = Color.rgb(Color.red(topPx), Color.green(topPx), Color.blue(topPx))
+            val bottom = Color.rgb(Color.red(bottomPx), Color.green(bottomPx), Color.blue(bottomPx))
             topBar.setBackgroundColor(top)
             bottomBar.setBackgroundColor(bottom)
             val controller = WindowInsetsControllerCompat(window, rootContainer)
             controller.isAppearanceLightStatusBars = ColorUtils.calculateLuminance(top) > 0.5
             controller.isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(bottom) > 0.5
+        } finally {
+            bmp.recycle()
         }
     }
 
