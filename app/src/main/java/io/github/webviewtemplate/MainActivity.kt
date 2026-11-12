@@ -47,6 +47,8 @@ import androidx.core.graphics.toColorInt
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
+import android.view.View
 
 @SuppressLint("IntentReset", "QueryPermissionsNeeded")
 class MainActivity : AppCompatActivity() {
@@ -76,6 +78,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     @Volatile private var pageIsReady = false
     private lateinit var rootContainer: FrameLayout
+    private lateinit var topBar: View
+    private lateinit var bottomBar: View
+    private val colorHandler = Handler(Looper.getMainLooper())
+    private val colorPoller = object : Runnable {
+        override fun run() {
+            if (::webView.isInitialized) syncBarColorsWithPage(webView)
+            colorHandler.postDelayed(this, 600)
+        }
+    }
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCaptureUri: Uri? = null
     private var pendingCameraCaptureFile: File? = null
@@ -155,21 +166,34 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         rootContainer = findViewById(R.id.root_container)
-        rootContainer.setBackgroundColor(Color.parseColor("#0B2A43"))
+        rootContainer.setBackgroundColor(Color.WHITE)
         webView = findViewById(R.id.webview)
-        val initialLeft = rootContainer.paddingLeft
-        val initialTop = rootContainer.paddingTop
-        val initialRight = rootContainer.paddingRight
-        val initialBottom = rootContainer.paddingBottom
 
-        ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { view, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(
-                initialLeft + systemBars.left,
-                initialTop + systemBars.top,
-                initialRight + systemBars.right,
-                initialBottom + systemBars.bottom
+        topBar = View(this).apply {
+            setBackgroundColor(Color.WHITE)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, 0, Gravity.TOP
             )
+        }
+        bottomBar = View(this).apply {
+            setBackgroundColor(Color.WHITE)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, 0, Gravity.BOTTOM
+            )
+        }
+        rootContainer.addView(topBar)
+        rootContainer.addView(bottomBar)
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            (webView.layoutParams as FrameLayout.LayoutParams).setMargins(
+                bars.left, bars.top, bars.right, bars.bottom
+            )
+            webView.requestLayout()
+            topBar.layoutParams.height = bars.top
+            bottomBar.layoutParams.height = bars.bottom
+            topBar.requestLayout()
+            bottomBar.requestLayout()
             insets
         }
         ViewCompat.requestApplyInsets(rootContainer)
@@ -317,7 +341,7 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
-                syncTopInsetColorWithPage(view)
+                syncBarColorsWithPage(view)
             }
 
             override fun shouldOverrideUrlLoading(
@@ -351,7 +375,7 @@ class MainActivity : AppCompatActivity() {
                 saveBytes(name, mime, bytes)
             }
         }
-        webView.setBackgroundColor(Color.parseColor("#0B2A43"))
+                webView.setBackgroundColor(Color.WHITE)
         webView.loadUrl(HOME_URL)
         // A recreated activity may already have a request in flight; its result is redelivered.
         if (savedInstanceState == null) {
@@ -373,6 +397,15 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+        override fun onResume() {
+        super.onResume()
+        colorHandler.post(colorPoller)
+    }
+
+    override fun onPause() {
+        colorHandler.removeCallbacks(colorPoller)
+        super.onPause()
+    }
     override fun onDestroy() {
         pendingWebPermissionRequest?.request?.deny()
         pendingWebPermissionRequest = null
@@ -495,15 +528,18 @@ class MainActivity : AppCompatActivity() {
         pendingCameraCaptureFile = null
     }
 
-    private fun syncTopInsetColorWithPage(view: WebView) {
-        view.evaluateJavascript(PAGE_BACKGROUND_JS) { jsValue ->
-            val cssColor = decodeJsonString(jsValue) ?: return@evaluateJavascript
-            val color = parseCssColor(cssColor) ?: return@evaluateJavascript
-            rootContainer.setBackgroundColor(color)
-
-            val useDarkStatusBarIcons = ColorUtils.calculateLuminance(color) > 0.5
-            WindowInsetsControllerCompat(window, rootContainer).isAppearanceLightStatusBars =
-                useDarkStatusBarIcons
+    private fun syncBarColorsWithPage(view: WebView) {
+        view.evaluateJavascript(EDGE_COLORS_JS) { jsValue ->
+            val raw = decodeJsonString(jsValue) ?: return@evaluateJavascript
+            val parts = raw.split("|")
+            if (parts.size != 2) return@evaluateJavascript
+            val top = parseCssColor(parts[0]) ?: return@evaluateJavascript
+            val bottom = parseCssColor(parts[1]) ?: return@evaluateJavascript
+            topBar.setBackgroundColor(top)
+            bottomBar.setBackgroundColor(bottom)
+            val controller = WindowInsetsControllerCompat(window, rootContainer)
+            controller.isAppearanceLightStatusBars = ColorUtils.calculateLuminance(top) > 0.5
+            controller.isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(bottom) > 0.5
         }
     }
 
@@ -596,20 +632,30 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "WebViewTemplate"
         private const val HOME_URL = BuildConfig.HOME_URL
-        private const val PAGE_BACKGROUND_JS = """
+        private const val EDGE_COLORS_JS = """
             (() => {
-              const htmlColor = window.getComputedStyle(document.documentElement).backgroundColor;
-              const bodyColor = window.getComputedStyle(document.body).backgroundColor;
-              const candidates = [bodyColor, htmlColor];
-              for (const color of candidates) {
-                if (!color) continue;
-                const normalized = color.trim().toLowerCase();
-                if (normalized !== "transparent" && normalized !== "rgba(0, 0, 0, 0)") {
-                  return color;
+              const solid = (c) => {
+                if (!c) return false;
+                const m = c.match(/rgba?\(([^)]+)\)/);
+                if (!m) return false;
+                const p = m[1].split(',').map(s => parseFloat(s));
+                return p.length < 4 || p[3] >= 0.95;
+              };
+              const colorAt = (y) => {
+                let el = document.elementFromPoint(4, y);
+                while (el) {
+                  const c = getComputedStyle(el).backgroundColor;
+                  if (solid(c)) return c;
+                  el = el.parentElement;
                 }
-              }
-              return "#ffffff";
+                return null;
+              };
+              const b = getComputedStyle(document.body).backgroundColor;
+              const h = getComputedStyle(document.documentElement).backgroundColor;
+              const fallback = solid(b) ? b : (solid(h) ? h : 'rgb(255, 255, 255)');
+              return (colorAt(2) || fallback) + '|' + (colorAt(window.innerHeight - 3) || fallback);
             })();
         """
     }
 }
+
