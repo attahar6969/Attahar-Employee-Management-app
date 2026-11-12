@@ -89,6 +89,14 @@ class MainActivity : AppCompatActivity() {
             colorHandler.postDelayed(this, 600)
         }
     }
+    @Volatile private var contentShown = false
+    private val contentPoller = object : Runnable {
+        override fun run() {
+            if (contentShown) return
+            if (::webView.isInitialized && pageIsReady) checkContentShown(webView)
+            colorHandler.postDelayed(this, 120)
+        }
+    }     
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCaptureUri: Uri? = null
     private var pendingCameraCaptureFile: File? = null
@@ -158,9 +166,9 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
-        splash.setKeepOnScreenCondition { !pageIsReady }
+        splash.setKeepOnScreenCondition { !(pageIsReady && contentShown) }
         super.onCreate(savedInstanceState)
-        Handler(Looper.getMainLooper()).postDelayed({ pageIsReady = true }, 10000)
+        Handler(Looper.getMainLooper()).postDelayed({ pageIsReady = true; contentShown = true }, 10000)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -360,7 +368,7 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest,
                 error: android.webkit.WebResourceError
             ) {
-                if (request.isForMainFrame) pageIsReady = true
+                if (request.isForMainFrame) { pageIsReady = true; contentShown = true }
             }
         }
 
@@ -403,11 +411,13 @@ class MainActivity : AppCompatActivity() {
 
         override fun onResume() {
         super.onResume()
-        colorHandler.post(colorPoller)
+        colorHandler.post(colorPoller)         
+        colorHandler.post(contentPoller)
     }
 
     override fun onPause() {
-        colorHandler.removeCallbacks(colorPoller)
+        colorHandler.removeCallbacks(colorPoller)        
+        colorHandler.removeCallbacks(contentPoller)
         super.onPause()
     }
     override fun onDestroy() {
@@ -552,6 +562,32 @@ class MainActivity : AppCompatActivity() {
             bottomBar.setBackgroundColor(bottom)
             WindowInsetsControllerCompat(window, rootContainer).isAppearanceLightNavigationBars =
                 ColorUtils.calculateLuminance(bottom) > 0.5
+        } finally {
+            bmp.recycle()
+        }
+    }
+
+    private fun checkContentShown(view: WebView) {
+        if (view.width <= 0 || view.height <= 0) return
+        val scale = 0.25f
+        val w = (view.width * scale).toInt().coerceAtLeast(4)
+        val h = (view.height * scale).toInt().coerceAtLeast(4)
+        val bmp = try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        } catch (e: Throwable) {
+            return
+        }
+        try {
+            val canvas = Canvas(bmp)
+            canvas.scale(scale, scale)
+            view.draw(canvas)
+            val px = bmp.getPixel(2, (h * 0.15f).toInt())
+            val r = Color.red(px)
+            val g = Color.green(px)
+            val b = Color.blue(px)
+            val isNavy = Math.abs(r - 11) < 20 && Math.abs(g - 42) < 20 && Math.abs(b - 67) < 20
+            val isWhite = r > 245 && g > 245 && b > 245
+            if (!isNavy && !isWhite) contentShown = true
         } finally {
             bmp.recycle()
         }
