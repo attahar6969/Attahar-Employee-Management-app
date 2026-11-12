@@ -185,6 +185,8 @@ class MainActivity : AppCompatActivity() {
         }
         rootContainer.addView(topBar)
         rootContainer.addView(bottomBar)
+        topBar.setBackgroundColor(Color.parseColor("#0B0B0B"))
+        WindowInsetsControllerCompat(window, rootContainer).isAppearanceLightStatusBars = false
 
         ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -530,7 +532,7 @@ class MainActivity : AppCompatActivity() {
         pendingCameraCaptureFile = null
     }
 
-     private fun syncBarColorsWithPage(view: WebView) {
+    private fun syncBarColorsWithPage(view: WebView) {
         if (view.width <= 0 || view.height <= 0) return
         val scale = 0.25f
         val w = (view.width * scale).toInt().coerceAtLeast(4)
@@ -544,16 +546,12 @@ class MainActivity : AppCompatActivity() {
             val canvas = Canvas(bmp)
             canvas.scale(scale, scale)
             view.draw(canvas)
-            val topPx = bmp.getPixel(2, 1)
             val bottomPx = bmp.getPixel(2, h - 2)
-            if (Color.alpha(topPx) == 0 || Color.alpha(bottomPx) == 0) return
-            val top = Color.rgb(Color.red(topPx), Color.green(topPx), Color.blue(topPx))
+            if (Color.alpha(bottomPx) == 0) return
             val bottom = Color.rgb(Color.red(bottomPx), Color.green(bottomPx), Color.blue(bottomPx))
-            topBar.setBackgroundColor(top)
             bottomBar.setBackgroundColor(bottom)
-            val controller = WindowInsetsControllerCompat(window, rootContainer)
-            controller.isAppearanceLightStatusBars = ColorUtils.calculateLuminance(top) > 0.5
-            controller.isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(bottom) > 0.5
+            WindowInsetsControllerCompat(window, rootContainer).isAppearanceLightNavigationBars =
+                ColorUtils.calculateLuminance(bottom) > 0.5
         } finally {
             bmp.recycle()
         }
